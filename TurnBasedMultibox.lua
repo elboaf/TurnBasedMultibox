@@ -1,11 +1,12 @@
 -- TurnBasedMultibox.lua for Vanilla WoW 1.12
 local ADDON_NAME = "TurnBasedMultibox"
 local PREFIX = "TBM"
-local isMyTurn = false
+local isCasting = false
+local partnerCasting = false
 local partnerName = nil
 local isLeader = false
-local WAIT_DELAY = 1.0
-local timerStart = 0  -- Initialize as number
+local BLOCK_DELAY = 1.0  -- 1 second delay after leader casts
+local timerStart = 0
 local mySlashCommand = nil
 local mySlashFunc = nil
 
@@ -13,45 +14,65 @@ local mySlashFunc = nil
 local f = CreateFrame("Frame", "TurnBasedMultiboxFrame")
 local timerFrame = CreateFrame("Frame")
 
--- Universal message sending
-local function SendTurnMessage()
+-- Send casting notification
+local function SendCastingNotification(isStarting)
     if not partnerName then return end
     
-    -- Try different methods
+    local msg = isStarting and "CAST_START" or "CAST_END"
+    
     if GetNumPartyMembers() > 0 then
-        SendAddonMessage(PREFIX, "TURN_PASS", "PARTY")
+        SendAddonMessage(PREFIX, msg, "PARTY")
     else
-        SendChatMessage("TBM_TURN_PASS", "WHISPER", nil, partnerName)
+        SendChatMessage("TBM_"..msg, "WHISPER", nil, partnerName)
     end
-    DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Turn passed")
 end
 
--- Fixed timer implementation
+-- Timer for automatic cast completion
 timerFrame:SetScript("OnUpdate", function()
-    if timerStart > 0 then  -- Check if timer is active
+    if timerStart > 0 then
         local currentTime = GetTime()
         local elapsed = currentTime - timerStart
-        if elapsed >= WAIT_DELAY then
-            timerStart = 0  -- Reset timer
+        if elapsed >= BLOCK_DELAY then
+            timerStart = 0
             this:Hide()
-            SendTurnMessage()
+            if isCasting then
+                isCasting = false
+                SendCastingNotification(false)
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Casting complete (auto)")
+            end
         end
     end
 end)
 timerFrame:Hide()
 
-local function PassTurnWithDelay()
-    timerStart = GetTime()  -- Store numeric timestamp
+local function StartCastTimer()
+    timerStart = GetTime()
     timerFrame:Show()
 end
 
--- Execute command
+-- Execute command with casting coordination
 local function ExecuteCommand()
+    if not partnerName then
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first!")
+        return
+    end
+    
+    if partnerCasting then
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner is casting - waiting!")
+        return
+    end
+    
     if mySlashFunc then
+        -- Notify partner we're starting to cast
+        isCasting = true
+        SendCastingNotification(true)
+        
+        -- Execute the command
         mySlashFunc()
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Executing command")
-        isMyTurn = false
-        PassTurnWithDelay()
+        
+        -- Start timer to automatically end casting state
+        StartCastTimer()
     else
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: No command configured!")
     end
@@ -70,7 +91,6 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner set to "..arg)
     elseif cmd == "setleader" then
         isLeader = true
-        isMyTurn = true
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You are now the leader")
     elseif cmd == "setcommand" and arg ~= "" then
         local cmdUpper = string.upper(arg)
@@ -82,25 +102,22 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
             DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Command /"..arg.." not found!")
         end
     elseif cmd == "go" then
-        if not partnerName then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first!")
-            return
-        end
-        if not mySlashCommand then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set command first!")
-            return
-        end
-        if not isMyTurn then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Not your turn!")
-            return
-        end
         ExecuteCommand()
+    elseif cmd == "endcast" then
+        if isCasting then
+            isCasting = false
+            timerStart = 0  -- Cancel any pending timer
+            timerFrame:Hide()
+            SendCastingNotification(false)
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Casting complete (manual)")
+        end
     else
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox Commands:")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setpartner Name - Set your partner")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setleader - Become the leader")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setcommand CMD - Set command to execute")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute your command")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute your command (1 sec cooldown)")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm endcast - Manually end casting state")
     end
 end
 
@@ -108,19 +125,25 @@ end
 f:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" then
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox loaded")
-        if isLeader then
-            isMyTurn = true
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You have first turn!")
-        end
     elseif event == "CHAT_MSG_ADDON" then
-        if arg1 == PREFIX and arg2 == "TURN_PASS" and arg4 == partnerName then
-            isMyTurn = true
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn")
+        if arg1 == PREFIX and arg4 == partnerName then
+            if arg2 == "CAST_START" then
+                partnerCasting = true
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner started casting")
+            elseif arg2 == "CAST_END" then
+                partnerCasting = false
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner finished casting")
+            end
         end
     elseif event == "CHAT_MSG_WHISPER" then
-        if arg1 == "TBM_TURN_PASS" and arg2 == partnerName then
-            isMyTurn = true
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn via whisper")
+        if arg2 == partnerName then
+            if arg1 == "TBM_CAST_START" then
+                partnerCasting = true
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner started casting (whisper)")
+            elseif arg1 == "TBM_CAST_END" then
+                partnerCasting = false
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Partner finished casting (whisper)")
+            end
         end
     end
 end)
