@@ -11,13 +11,19 @@ Perfect for synchronized multiboxing in Vanilla WoW 1.12
 
 🎮 Setup & Commands
 First Character (Leader)
+
 /tbm setpartner DruidName    -- Set your partner's name
+
 /tbm setcommand SWOOSH      -- Configure your slash command
+
 /tbm setleader             -- Designate as the starter
 
 Second Character (Follower)
+
 /tbm setpartner RogueName   -- Set your partner's name  
+
 /tbm setcommand DRIBBLE    -- Configure your slash command  
+
 
 Core Commands
 Command	Description	Example
