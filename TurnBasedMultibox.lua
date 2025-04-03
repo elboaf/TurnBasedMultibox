@@ -1,54 +1,59 @@
 -- TurnBasedMultibox.lua for Vanilla WoW 1.12
 local ADDON_NAME = "TurnBasedMultibox"
-local PREFIX = "TBM" -- Addon message prefix
+local PREFIX = "TBM"
 local isMyTurn = false
 local partnerName = nil
-local myClass = nil
 local isLeader = false
-local WAIT_DELAY = 2.0 -- 2 second delay
-local timerStart = nil
-local mySlashCommand = nil -- Stores which slash command to use
+local WAIT_DELAY = 1.0
+local timerStart = 0  -- Initialize as number
+local mySlashCommand = nil
+local mySlashFunc = nil
 
 -- Create frames
 local f = CreateFrame("Frame", "TurnBasedMultiboxFrame")
-local timerFrame = CreateFrame("Frame") -- For delay handling
+local timerFrame = CreateFrame("Frame")
 
--- Safe message sending function
+-- Universal message sending
 local function SendTurnMessage()
     if not partnerName then return end
     
-    -- Try PARTY channel first (works even if not in party)
+    -- Try different methods
     if GetNumPartyMembers() > 0 then
         SendAddonMessage(PREFIX, "TURN_PASS", "PARTY")
     else
-        -- Fall back to WHISPER if not in party
-        SendAddonMessage(PREFIX, "TURN_PASS", "WHISPER", partnerName)
+        SendChatMessage("TBM_TURN_PASS", "WHISPER", nil, partnerName)
     end
-    DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Turn passed to partner")
+    DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Turn passed")
 end
 
--- Timer implementation for Vanilla
+-- Fixed timer implementation
 timerFrame:SetScript("OnUpdate", function()
-    if timerStart and (GetTime() - timerStart) >= WAIT_DELAY then
-        timerStart = nil
-        this:Hide()
-        SendTurnMessage()
+    if timerStart > 0 then  -- Check if timer is active
+        local currentTime = GetTime()
+        local elapsed = currentTime - timerStart
+        if elapsed >= WAIT_DELAY then
+            timerStart = 0  -- Reset timer
+            this:Hide()
+            SendTurnMessage()
+        end
     end
 end)
 timerFrame:Hide()
 
 local function PassTurnWithDelay()
-    timerStart = GetTime()
+    timerStart = GetTime()  -- Store numeric timestamp
     timerFrame:Show()
 end
 
--- Execute the configured slash command
-local function ExecuteClassCommand()
-    if mySlashCommand and SlashCmdList[mySlashCommand] then
-        SlashCmdList[mySlashCommand]()
-        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Executing /%s", mySlashCommand))
+-- Execute command
+local function ExecuteCommand()
+    if mySlashFunc then
+        mySlashFunc()
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Executing command")
+        isMyTurn = false
+        PassTurnWithDelay()
     else
-        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Error! Command '%s' not found", mySlashCommand or "nil"))
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: No command configured!")
     end
 end
 
@@ -66,68 +71,60 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
     elseif cmd == "setleader" then
         isLeader = true
         isMyTurn = true
-        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You are now the leader (start first)")
-    elseif cmd == "setslash" and arg ~= "" then
-        mySlashCommand = string.upper(arg)
-        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Will execute /%s when it's your turn", arg))
-    elseif cmd == "status" then
-        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: "..(isMyTurn and "It's YOUR turn" or "Waiting for partner"))
-        DEFAULT_CHAT_FRAME:AddMessage("Status: "..(isLeader and "Leader" or "Follower"))
-        DEFAULT_CHAT_FRAME:AddMessage("Class: "..(myClass or "unknown"))
-        DEFAULT_CHAT_FRAME:AddMessage("Slash Command: "..(mySlashCommand or "not set"))
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You are now the leader")
+    elseif cmd == "setcommand" and arg ~= "" then
+        local cmdUpper = string.upper(arg)
+        if SlashCmdList[cmdUpper] then
+            mySlashCommand = cmdUpper
+            mySlashFunc = SlashCmdList[cmdUpper]
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Will execute /"..arg)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Command /"..arg.." not found!")
+        end
     elseif cmd == "go" then
         if not partnerName then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first with /tbm setpartner Name")
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first!")
             return
         end
-        
         if not mySlashCommand then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set slash command first with /tbm setslash COMMAND")
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set command first!")
             return
         end
-        
         if not isMyTurn then
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Not your turn yet!")
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Not your turn!")
             return
         end
-        
-        ExecuteClassCommand()
+        ExecuteCommand()
     else
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox Commands:")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setpartner Name - Set your partner")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm setleader - Designate yourself as starter")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm setslash COMMAND - Set which slash command to execute (e.g. SWOOSH)")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute your slash command")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm status - Show current status")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm setleader - Become the leader")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm setcommand CMD - Set command to execute")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute your command")
     end
 end
 
 -- Event handling
 f:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" then
-        -- Get player class
-        _, myClass = UnitClass("player")
-        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Loaded - /tbm for help")
-        
-        -- If leader, announce first turn
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox loaded")
         if isLeader then
             isMyTurn = true
             DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You have first turn!")
         end
-        
     elseif event == "CHAT_MSG_ADDON" then
-        -- Only handle our own addon messages
-        if arg1 == PREFIX then
-            if arg2 == "TURN_PASS" and arg4 == partnerName then
-                isMyTurn = true
-                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn from "..arg4)
-            end
+        if arg1 == PREFIX and arg2 == "TURN_PASS" and arg4 == partnerName then
+            isMyTurn = true
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn")
+        end
+    elseif event == "CHAT_MSG_WHISPER" then
+        if arg1 == "TBM_TURN_PASS" and arg2 == partnerName then
+            isMyTurn = true
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn via whisper")
         end
     end
 end)
 
--- Register events
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
-f:RegisterEvent("CHAT_MSG_ADDON") -- For addon messages
-
-DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox loaded. Type /tbm for help")
+f:RegisterEvent("CHAT_MSG_ADDON")
+f:RegisterEvent("CHAT_MSG_WHISPER")
