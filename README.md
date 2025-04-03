@@ -1,4 +1,4 @@
-TurnBasedMultibox
+TurnBasedMultibox    
 Coordinate spellcasting between two characters to prevent simultaneous casting
 
 This addon was created specifically for Turtle Wow. 
