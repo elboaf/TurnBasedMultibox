@@ -1,28 +1,37 @@
 -- TurnBasedMultibox.lua for Vanilla WoW 1.12
 local ADDON_NAME = "TurnBasedMultibox"
-local CHANNEL_NAME = "TurnBasedMB"
+local PREFIX = "TBM" -- Addon message prefix
 local isMyTurn = false
 local partnerName = nil
 local myClass = nil
 local isLeader = false
-local channelNumber = nil
-local WAIT_DELAY = 1.0 -- 1 second delay
+local WAIT_DELAY = 1.0 -- 2 second delay
 local timerStart = nil
 
 -- Create frames
 local f = CreateFrame("Frame", "TurnBasedMultiboxFrame")
 local timerFrame = CreateFrame("Frame") -- For delay handling
 
+-- Safe message sending function
+local function SendTurnMessage()
+    if not partnerName then return end
+    
+    -- Try PARTY channel first (works even if not in party)
+    if GetNumPartyMembers() > 0 then
+        SendAddonMessage(PREFIX, "TURN_PASS", "PARTY")
+    else
+        -- Fall back to WHISPER if not in party
+        SendAddonMessage(PREFIX, "TURN_PASS", "WHISPER", partnerName)
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Turn passed to partner")
+end
+
 -- Timer implementation for Vanilla
 timerFrame:SetScript("OnUpdate", function()
     if timerStart and (GetTime() - timerStart) >= WAIT_DELAY then
         timerStart = nil
         this:Hide()
-        
-        if channelNumber and channelNumber > 0 then
-            SendChatMessage("TURN_PASS", "CHANNEL", nil, channelNumber)
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Turn passed to partner")
-        end
+        SendTurnMessage()
     end
 end)
 timerFrame:Hide()
@@ -74,7 +83,7 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: "..(isMyTurn and "It's YOUR turn" or "Waiting for partner"))
         DEFAULT_CHAT_FRAME:AddMessage("Status: "..(isLeader and "Leader" or "Follower"))
         DEFAULT_CHAT_FRAME:AddMessage("Class: "..(myClass or "unknown"))
-    elseif cmd == "go" then  -- Changed from "test" to "go"
+    elseif cmd == "go" then
         if not partnerName then
             DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first with /tbm setpartner Name")
             return
@@ -100,11 +109,7 @@ f:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" then
         -- Get player class
         _, myClass = UnitClass("player")
-        
-        -- Join our channel
-        JoinChannelByName(CHANNEL_NAME)
-        channelNumber = GetChannelName(CHANNEL_NAME)
-        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Joined coordination channel")
+        DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Loaded - /tbm for help")
         
         -- If leader, announce first turn
         if isLeader then
@@ -112,16 +117,19 @@ f:SetScript("OnEvent", function()
             DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You have first turn!")
         end
         
-    elseif event == "CHAT_MSG_CHANNEL" then
-        if arg1 == "TURN_PASS" and arg2 == partnerName then
-            isMyTurn = true
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn from "..arg2)
+    elseif event == "CHAT_MSG_ADDON" then
+        -- Only handle our own addon messages
+        if arg1 == PREFIX then
+            if arg2 == "TURN_PASS" and arg4 == partnerName then
+                isMyTurn = true
+                DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Received turn from "..arg4)
+            end
         end
     end
 end)
 
 -- Register events
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
-f:RegisterEvent("CHAT_MSG_CHANNEL")
+f:RegisterEvent("CHAT_MSG_ADDON") -- For addon messages
 
 DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox loaded. Type /tbm for help")
