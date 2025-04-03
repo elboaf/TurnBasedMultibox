@@ -5,8 +5,9 @@ local isMyTurn = false
 local partnerName = nil
 local myClass = nil
 local isLeader = false
-local WAIT_DELAY = 1.0 -- 2 second delay
+local WAIT_DELAY = 2.0 -- 2 second delay
 local timerStart = nil
+local mySlashCommand = nil -- Stores which slash command to use
 
 -- Create frames
 local f = CreateFrame("Frame", "TurnBasedMultiboxFrame")
@@ -41,27 +42,14 @@ local function PassTurnWithDelay()
     timerFrame:Show()
 end
 
--- Execute class-specific slash commands
+-- Execute the configured slash command
 local function ExecuteClassCommand()
-    if myClass == "ROGUE" then
-        if SlashCmdList["SWOOSH"] then
-            SlashCmdList["SWOOSH"]() -- Execute /swoosh
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Executing /swoosh")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: SWOOSH addon not loaded!")
-        end
-    elseif myClass == "DRUID" then
-        if SlashCmdList["DRIBBLE"] then
-            SlashCmdList["DRIBBLE"]() -- Execute /dribble
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Executing /dribble")
-        else
-            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: DRIBBLE addon not loaded!")
-        end
+    if mySlashCommand and SlashCmdList[mySlashCommand] then
+        SlashCmdList[mySlashCommand]()
+        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Executing /%s", mySlashCommand))
+    else
+        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Error! Command '%s' not found", mySlashCommand or "nil"))
     end
-    
-    -- Pass turn after executing command
-    isMyTurn = false
-    PassTurnWithDelay()
 end
 
 -- Slash command handler
@@ -79,13 +67,22 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
         isLeader = true
         isMyTurn = true
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: You are now the leader (start first)")
+    elseif cmd == "setslash" and arg ~= "" then
+        mySlashCommand = string.upper(arg)
+        DEFAULT_CHAT_FRAME:AddMessage(format("TurnBasedMultibox: Will execute /%s when it's your turn", arg))
     elseif cmd == "status" then
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: "..(isMyTurn and "It's YOUR turn" or "Waiting for partner"))
         DEFAULT_CHAT_FRAME:AddMessage("Status: "..(isLeader and "Leader" or "Follower"))
         DEFAULT_CHAT_FRAME:AddMessage("Class: "..(myClass or "unknown"))
+        DEFAULT_CHAT_FRAME:AddMessage("Slash Command: "..(mySlashCommand or "not set"))
     elseif cmd == "go" then
         if not partnerName then
             DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set partner first with /tbm setpartner Name")
+            return
+        end
+        
+        if not mySlashCommand then
+            DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox: Set slash command first with /tbm setslash COMMAND")
             return
         end
         
@@ -99,7 +96,8 @@ function SlashCmdList.TURNBASEDMULTIBOX(msg)
         DEFAULT_CHAT_FRAME:AddMessage("TurnBasedMultibox Commands:")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setpartner Name - Set your partner")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm setleader - Designate yourself as starter")
-        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute class command (with "..WAIT_DELAY.."s delay)")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm setslash COMMAND - Set which slash command to execute (e.g. SWOOSH)")
+        DEFAULT_CHAT_FRAME:AddMessage("/tbm go - Execute your slash command")
         DEFAULT_CHAT_FRAME:AddMessage("/tbm status - Show current status")
     end
 end
