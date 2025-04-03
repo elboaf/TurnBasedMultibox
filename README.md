@@ -29,5 +29,5 @@ Features:
 Example Session:
 
 /tbm setpartner Myalt  
-/tbm setcommand SLASHCOMMAND
-/tbm go  # Executes another addons SLASHCOMMAND
+/tbm setcommand SLASHCOMMAND    
+/tbm go
