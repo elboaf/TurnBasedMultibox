@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: TurnBasedMultibox
+## Notes: Facilitates turn-based spellcasting for multiboxing
+## Author: YourName
+## Version: 1.0
+## SavedVariables: (optional - add if you want to save settings between sessions)
+
+TurnBasedMultibox.lua
